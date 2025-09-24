@@ -28,7 +28,7 @@ final class Group {
     var iconName: String? // SF Symbol
     var sortOrder: Int
     var createdAt: Date
-    
+
     init(name: String, colorName: String = "blue", iconName: String? = nil, sortOrder: Int = 0) {
         self.id = UUID()
         self.name = name

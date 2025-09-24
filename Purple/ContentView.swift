@@ -17,6 +17,8 @@ struct ContentView: View {
     @State private var showingGroupManager = false
     @State private var searchText = ""
     @State private var editMode: EditMode = .inactive
+    // Tracks which groups are expanded (keyed by UUID string or "ungrouped")
+    @State private var expandedGroups: Set<String> = []
 
     var filteredAccounts: [OTPAccount] {
         if searchText.isEmpty {
@@ -29,7 +31,7 @@ struct ContentView: View {
             }.sorted { $0.serviceName < $1.serviceName }
         }
     }
-    
+
     var groupedAccounts: [(group: Group?, accounts: [OTPAccount])] {
         let grouped = Dictionary(grouping: filteredAccounts) { $0.group }
         let sortedGroups = grouped.keys.sorted { lhs, rhs in
@@ -42,7 +44,7 @@ struct ContentView: View {
                 return group1.name < group2.name
             }
         }
-        
+
         return sortedGroups.map { group in
             (group: group, accounts: grouped[group]?.sorted { $0.serviceName < $1.serviceName } ?? [])
         }
@@ -63,18 +65,27 @@ struct ContentView: View {
                             LazyVStack(spacing: 20) {
                                 ForEach(groupedAccounts, id: \.group?.id) { groupData in
                                     if !groupData.accounts.isEmpty {
+                                        let key = groupData.group?.id.uuidString ?? "ungrouped"
                                         GroupSection(
                                             group: groupData.group,
                                             accounts: groupData.accounts,
                                             otpService: otpService,
                                             modelContext: modelContext,
                                             editMode: $editMode,
+                                            isExpanded: expandedGroups.contains(key),
+                                            onToggle: {
+                                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                                    if expandedGroups.contains(key) {
+                                                        expandedGroups.remove(key)
+                                                    } else {
+                                                        expandedGroups.insert(key)
+                                                    }
+                                                }
+                                            },
                                             onDelete: { account in
                                                 deleteAccount(account)
                                             },
-                                            onEdit: { account in
-                                                // This will be handled by GroupSection
-                                            }
+                                            onEdit: { _ in }
                                         )
                                         .transition(.asymmetric(
                                             insertion: .scale.combined(with: .opacity),
@@ -113,11 +124,7 @@ struct ContentView: View {
                 }
 
                 if !accounts.isEmpty {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        EditButton()
-                            .foregroundColor(.purplePrimary)
-                    }
-                    
+
                     ToolbarItem(placement: .topBarLeading) {
                         Button("Groups") {
                             showingGroupManager = true
@@ -167,7 +174,7 @@ struct ContentView: View {
             otpService.updateCode(for: account)
         }
     }
-    
+
     private func createDefaultGroupsIfNeeded() {
         // Only create default groups if no groups exist yet
         if groups.isEmpty {
@@ -177,11 +184,11 @@ struct ContentView: View {
                 Group(name: "Development", colorName: "green", iconName: "laptopcomputer", sortOrder: 3),
                 Group(name: "Production", colorName: "red", iconName: "server.rack", sortOrder: 4)
             ]
-            
+
             for group in defaultGroups {
                 modelContext.insert(group)
             }
-            
+
             do {
                 try modelContext.save()
             } catch {
@@ -197,111 +204,112 @@ struct GroupSection: View {
     @ObservedObject var otpService: OTPService
     let modelContext: ModelContext
     @Binding var editMode: EditMode
+    let isExpanded: Bool
+    let onToggle: () -> Void
     let onDelete: (OTPAccount) -> Void
     let onEdit: (OTPAccount) -> Void
-    
+
     @State private var showingEditAccount: OTPAccount?
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let group = group {
+            Button(action: onToggle) {
                 HStack(spacing: 12) {
-                    if let iconName = group.iconName {
-                        Image(systemName: iconName)
-                            .font(.title3)
-                            .foregroundColor(.purplePrimary)
-                            .frame(width: 24, height: 24)
-                    }
-                    
-                    Text(group.name)
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
-                    
-                    Text("(\(accounts.count))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.purpleLight)
-                        .clipShape(Capsule())
-                    
-                    Spacer()
-                }
-                .padding(.horizontal, 4)
-            } else {
-                HStack {
-                    Image(systemName: "tray")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                        .frame(width: 24, height: 24)
-                    
-                    Text("Ungrouped")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
-                    
-                    Text("(\(accounts.count))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.gray.opacity(0.2))
-                        .clipShape(Capsule())
-                    
-                    Spacer()
-                }
-                .padding(.horizontal, 4)
-            }
-            
-            LazyVStack(spacing: 12) {
-                ForEach(accounts) { account in
-                    OTPAccountCard(account: account, otpService: otpService)
-                        .contextMenu {
-                            Button {
-                                showingEditAccount = account
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            
-                            Button(role: .destructive) {
-                                onDelete(account)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
+                    if let group = group {
+                        if let iconName = group.iconName {
+                            Image(systemName: iconName)
+                                .font(.title3)
+                                .foregroundColor(.purplePrimary)
+                                .frame(width: 24, height: 24)
                         }
-                        .overlay(alignment: .center) {
-                            // Edit mode overlay
-                            SwiftUI.Group {
-                                if editMode == .active {
-                                    HStack {
-                                        Button {
-                                            onDelete(account)
-                                        } label: {
-                                            Image(systemName: "minus.circle.fill")
-                                                .foregroundColor(.red)
-                                                .background(Color.white, in: Circle())
-                                        }
-                                        .padding(.leading, 8)
 
-                                        Spacer()
+                        Text(group.name)
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+                    } else {
+                        Image(systemName: "tray")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
+                            .frame(width: 24, height: 24)
 
-                                        Button {
-                                            showingEditAccount = account
-                                        } label: {
-                                            Image(systemName: "pencil.circle.fill")
-                                                .foregroundColor(.purplePrimary)
-                                                .background(Color.white, in: Circle())
+                        Text("Ungrouped")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+                    }
+
+                    Text("(\(accounts.count))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background((group == nil ? Color.gray.opacity(0.2) : Color.purpleLight))
+                        .clipShape(Capsule())
+
+                    Spacer()
+
+                    Image(systemName: isExpanded ? "chevron.down.circle.fill" : "chevron.right.circle.fill")
+                        .foregroundColor(.purplePrimary)
+                        .font(.title3)
+                        .symbolEffect(.rotate, value: isExpanded)
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 4)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                LazyVStack(spacing: 12) {
+                    ForEach(accounts) { account in
+                        OTPAccountCard(account: account, otpService: otpService)
+                            .contextMenu {
+                                Button {
+                                    showingEditAccount = account
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+
+                                Button(role: .destructive) {
+                                    onDelete(account)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .overlay(alignment: .center) {
+                                SwiftUI.Group {
+                                    if editMode == .active {
+                                        HStack {
+                                            Button {
+                                                onDelete(account)
+                                            } label: {
+                                                Image(systemName: "minus.circle.fill")
+                                                    .foregroundColor(.red)
+                                                    .background(Color.white, in: Circle())
+                                            }
+                                            .padding(.leading, 8)
+
+                                            Spacer()
+
+                                            Button {
+                                                showingEditAccount = account
+                                            } label: {
+                                                Image(systemName: "pencil.circle.fill")
+                                                    .foregroundColor(.purplePrimary)
+                                                    .background(Color.white, in: Circle())
+                                            }
+                                            .padding(.trailing, 8)
                                         }
-                                        .padding(.trailing, 8)
                                     }
                                 }
                             }
-                        }
+                    }
                 }
-            }
-            .sheet(item: $showingEditAccount) { account in
-                EditAccountView(account: account, modelContext: modelContext)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .sheet(item: $showingEditAccount) { account in
+                    EditAccountView(account: account, modelContext: modelContext)
+                }
             }
         }
     }
