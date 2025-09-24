@@ -11,6 +11,7 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var accounts: [OTPAccount]
+    @Query private var groups: [Group]
     @StateObject private var otpService = OTPService.shared
     @State private var showingAddAccount = false
     @State private var searchText = ""
@@ -21,8 +22,27 @@ struct ContentView: View {
         } else {
             return accounts.filter { account in
                 account.serviceName.localizedCaseInsensitiveContains(searchText) ||
-                account.accountName.localizedCaseInsensitiveContains(searchText)
+                account.accountName.localizedCaseInsensitiveContains(searchText) ||
+                (account.group?.name.localizedCaseInsensitiveContains(searchText) ?? false)
             }.sorted { $0.serviceName < $1.serviceName }
+        }
+    }
+    
+    var groupedAccounts: [(group: Group?, accounts: [OTPAccount])] {
+        let grouped = Dictionary(grouping: filteredAccounts) { $0.group }
+        let sortedGroups = grouped.keys.sorted { lhs, rhs in
+            switch (lhs, rhs) {
+            case (nil, _):
+                return false  // No group goes last
+            case (_, nil):
+                return true   // Groups come before no group
+            case let (group1?, group2?):
+                return group1.name < group2.name
+            }
+        }
+        
+        return sortedGroups.map { group in
+            (group: group, accounts: grouped[group]?.sorted { $0.serviceName < $1.serviceName } ?? [])
         }
     }
 
@@ -38,19 +58,25 @@ struct ContentView: View {
                         }
                     } else {
                         ScrollView {
-                            LazyVStack(spacing: 16) {
-                                ForEach(filteredAccounts) { account in
-                                    OTPAccountCard(account: account, otpService: otpService)
+                            LazyVStack(spacing: 20) {
+                                ForEach(groupedAccounts, id: \.group?.id) { groupData in
+                                    if !groupData.accounts.isEmpty {
+                                        GroupSection(
+                                            group: groupData.group,
+                                            accounts: groupData.accounts,
+                                            otpService: otpService
+                                        )
                                         .transition(.asymmetric(
                                             insertion: .scale.combined(with: .opacity),
                                             removal: .opacity
                                         ))
+                                    }
                                 }
                             }
                             .padding(.horizontal)
                             .padding(.top, 8)
                         }
-                        .searchable(text: $searchText, prompt: "Search accounts")
+                        .searchable(text: $searchText, prompt: "Search accounts or groups")
                     }
                 }
             }
@@ -104,6 +130,72 @@ struct ContentView: View {
     private func updateAllCodes() {
         for account in accounts {
             otpService.updateCode(for: account)
+        }
+    }
+}
+
+struct GroupSection: View {
+    let group: Group?
+    let accounts: [OTPAccount]
+    @ObservedObject var otpService: OTPService
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let group = group {
+                HStack(spacing: 12) {
+                    if let iconName = group.iconName {
+                        Image(systemName: iconName)
+                            .font(.title3)
+                            .foregroundColor(.purplePrimary)
+                            .frame(width: 24, height: 24)
+                    }
+                    
+                    Text(group.name)
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                    
+                    Text("(\(accounts.count))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.purpleLight)
+                        .clipShape(Capsule())
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 4)
+            } else {
+                HStack {
+                    Image(systemName: "tray")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                        .frame(width: 24, height: 24)
+                    
+                    Text("Ungrouped")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                    
+                    Text("(\(accounts.count))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.gray.opacity(0.2))
+                        .clipShape(Capsule())
+                    
+                    Spacer()
+                }
+                .padding(.horizontal, 4)
+            }
+            
+            LazyVStack(spacing: 12) {
+                ForEach(accounts) { account in
+                    OTPAccountCard(account: account, otpService: otpService)
+                }
+            }
         }
     }
 }
@@ -373,5 +465,5 @@ struct EmptyStateView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: OTPAccount.self, inMemory: true)
+        .modelContainer(for: [OTPAccount.self, Group.self], inMemory: true)
 }

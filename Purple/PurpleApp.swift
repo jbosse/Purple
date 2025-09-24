@@ -13,6 +13,7 @@ struct PurpleApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             OTPAccount.self,
+            Group.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
