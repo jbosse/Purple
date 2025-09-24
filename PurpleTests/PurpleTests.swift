@@ -22,7 +22,7 @@ struct PurpleTests {
         #expect(group.colorName == "blue")
         #expect(group.iconName == "folder")
         #expect(group.sortOrder == 1)
-        #expect(group.id != UUID())
+        #expect(!group.id.uuidString.isEmpty)
     }
     
     @Test func testOTPAccountWithGroup() async throws {
