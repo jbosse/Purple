@@ -86,3 +86,7 @@ final class OTPAccount {
         self.group = group
     }
 }
+
+extension OTPAccount: Identifiable {
+    // SwiftData automatically provides this, but making it explicit
+}

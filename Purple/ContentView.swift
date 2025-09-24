@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var showingAddAccount = false
     @State private var showingGroupManager = false
     @State private var searchText = ""
+    @State private var editMode: EditMode = .inactive
 
     var filteredAccounts: [OTPAccount] {
         if searchText.isEmpty {
@@ -65,7 +66,15 @@ struct ContentView: View {
                                         GroupSection(
                                             group: groupData.group,
                                             accounts: groupData.accounts,
-                                            otpService: otpService
+                                            otpService: otpService,
+                                            modelContext: modelContext,
+                                            editMode: $editMode,
+                                            onDelete: { account in
+                                                deleteAccount(account)
+                                            },
+                                            onEdit: { account in
+                                                // This will be handled by GroupSection
+                                            }
                                         )
                                         .transition(.asymmetric(
                                             insertion: .scale.combined(with: .opacity),
@@ -83,6 +92,7 @@ struct ContentView: View {
             }
             .navigationTitle("Purple OTP")
             .navigationBarTitleDisplayMode(.large)
+            .environment(\.editMode, $editMode)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
@@ -113,6 +123,7 @@ struct ContentView: View {
                             showingGroupManager = true
                         }
                         .foregroundColor(.purplePrimary)
+                        .disabled(editMode == .active)
                     }
                 }
             }
@@ -125,6 +136,18 @@ struct ContentView: View {
             .onAppear {
                 updateAllCodes()
                 createDefaultGroupsIfNeeded()
+            }
+        }
+    }
+
+    private func deleteAccount(_ account: OTPAccount) {
+        withAnimation {
+            otpService.deleteAccount(account)
+            modelContext.delete(account)
+            do {
+                try modelContext.save()
+            } catch {
+                print("Failed to delete account: \(error)")
             }
         }
     }
@@ -172,6 +195,12 @@ struct GroupSection: View {
     let group: Group?
     let accounts: [OTPAccount]
     @ObservedObject var otpService: OTPService
+    let modelContext: ModelContext
+    @Binding var editMode: EditMode
+    let onDelete: (OTPAccount) -> Void
+    let onEdit: (OTPAccount) -> Void
+    
+    @State private var showingEditAccount: OTPAccount?
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -228,7 +257,51 @@ struct GroupSection: View {
             LazyVStack(spacing: 12) {
                 ForEach(accounts) { account in
                     OTPAccountCard(account: account, otpService: otpService)
+                        .contextMenu {
+                            Button {
+                                showingEditAccount = account
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            
+                            Button(role: .destructive) {
+                                onDelete(account)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                        .overlay(
+                            // Edit mode overlay
+                            Group {
+                                if editMode == .active {
+                                    HStack {
+                                        Button {
+                                            onDelete(account)
+                                        } label: {
+                                            Image(systemName: "minus.circle.fill")
+                                                .foregroundColor(.red)
+                                                .background(Color.white, in: Circle())
+                                        }
+                                        .padding(.leading, 8)
+                                        
+                                        Spacer()
+                                        
+                                        Button {
+                                            showingEditAccount = account
+                                        } label: {
+                                            Image(systemName: "pencil.circle.fill")
+                                                .foregroundColor(.purplePrimary)
+                                                .background(Color.white, in: Circle())
+                                        }
+                                        .padding(.trailing, 8)
+                                    }
+                                }
+                            }
+                        )
                 }
+            }
+            .sheet(item: $showingEditAccount) { account in
+                EditAccountView(account: account, modelContext: modelContext)
             }
         }
     }
