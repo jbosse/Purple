@@ -14,6 +14,7 @@ struct ContentView: View {
     @Query private var groups: [Group]
     @StateObject private var otpService = OTPService.shared
     @State private var showingAddAccount = false
+    @State private var showingGroupManager = false
     @State private var searchText = ""
 
     var filteredAccounts: [OTPAccount] {
@@ -106,13 +107,24 @@ struct ContentView: View {
                         EditButton()
                             .foregroundColor(.purplePrimary)
                     }
+                    
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Groups") {
+                            showingGroupManager = true
+                        }
+                        .foregroundColor(.purplePrimary)
+                    }
                 }
             }
             .sheet(isPresented: $showingAddAccount) {
                 AddAccountView(modelContext: modelContext)
             }
+            .sheet(isPresented: $showingGroupManager) {
+                GroupManagerView()
+            }
             .onAppear {
                 updateAllCodes()
+                createDefaultGroupsIfNeeded()
             }
         }
     }
@@ -130,6 +142,28 @@ struct ContentView: View {
     private func updateAllCodes() {
         for account in accounts {
             otpService.updateCode(for: account)
+        }
+    }
+    
+    private func createDefaultGroupsIfNeeded() {
+        // Only create default groups if no groups exist yet
+        if groups.isEmpty {
+            let defaultGroups = [
+                Group(name: "Personal", colorName: "blue", iconName: "person.crop.circle", sortOrder: 1),
+                Group(name: "Work", colorName: "orange", iconName: "building.2", sortOrder: 2),
+                Group(name: "Development", colorName: "green", iconName: "laptopcomputer", sortOrder: 3),
+                Group(name: "Production", colorName: "red", iconName: "server.rack", sortOrder: 4)
+            ]
+            
+            for group in defaultGroups {
+                modelContext.insert(group)
+            }
+            
+            do {
+                try modelContext.save()
+            } catch {
+                print("Failed to create default groups: \(error)")
+            }
         }
     }
 }
