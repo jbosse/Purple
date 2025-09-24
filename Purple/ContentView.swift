@@ -270,9 +270,9 @@ struct GroupSection: View {
                                 Label("Delete", systemImage: "trash")
                             }
                         }
-                        .overlay(
+                        .overlay(alignment: .center) {
                             // Edit mode overlay
-                            Group {
+                            SwiftUI.Group {
                                 if editMode == .active {
                                     HStack {
                                         Button {
@@ -283,9 +283,9 @@ struct GroupSection: View {
                                                 .background(Color.white, in: Circle())
                                         }
                                         .padding(.leading, 8)
-                                        
+
                                         Spacer()
-                                        
+
                                         Button {
                                             showingEditAccount = account
                                         } label: {
@@ -297,7 +297,7 @@ struct GroupSection: View {
                                     }
                                 }
                             }
-                        )
+                        }
                 }
             }
             .sheet(item: $showingEditAccount) { account in

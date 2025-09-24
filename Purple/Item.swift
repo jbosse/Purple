@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import SwiftUI // For type names like Color if later extended and to avoid ambiguity with SwiftUI.Group usage elsewhere
 
 enum OTPAlgorithm: String, Codable, CaseIterable {
     case sha1 = "SHA1"
@@ -87,6 +88,9 @@ final class OTPAccount {
     }
 }
 
-extension OTPAccount: Identifiable {
-    // SwiftData automatically provides this, but making it explicit
-}
+// NOTE: Do NOT add an explicit Identifiable conformance here.
+// The @Model macro already synthesizes Identifiable in a context
+// that is compatible with SwiftData's PersistentModel and Swift 6
+// concurrency rules. An explicit extension can cause actor isolation
+// mismatches ("main actor-isolated conformance" errors) when
+// building with -default-isolation=MainActor.
