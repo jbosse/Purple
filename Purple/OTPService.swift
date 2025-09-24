@@ -91,7 +91,8 @@ class OTPService: ObservableObject {
         algorithm: OTPAlgorithm = .sha1,
         digits: Int = 6,
         period: Int = 30,
-        type: OTPType = .totp
+        type: OTPType = .totp,
+        group: Group? = nil
     ) -> OTPAccount? {
         let secretIdentifier = KeychainManager.generateSecretIdentifier()
 
@@ -106,7 +107,8 @@ class OTPService: ObservableObject {
             algorithm: algorithm,
             digits: digits,
             period: period,
-            type: type
+            type: type,
+            group: group
         )
 
         updateCode(for: account)

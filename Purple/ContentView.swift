@@ -11,9 +11,14 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var accounts: [OTPAccount]
+    @Query private var groups: [Group]
     @StateObject private var otpService = OTPService.shared
     @State private var showingAddAccount = false
+    @State private var showingGroupManager = false
     @State private var searchText = ""
+    @State private var editMode: EditMode = .inactive
+    // Tracks which groups are expanded (keyed by UUID string or "ungrouped")
+    @State private var expandedGroups: Set<String> = []
 
     var filteredAccounts: [OTPAccount] {
         if searchText.isEmpty {
@@ -21,8 +26,27 @@ struct ContentView: View {
         } else {
             return accounts.filter { account in
                 account.serviceName.localizedCaseInsensitiveContains(searchText) ||
-                account.accountName.localizedCaseInsensitiveContains(searchText)
+                account.accountName.localizedCaseInsensitiveContains(searchText) ||
+                (account.group?.name.localizedCaseInsensitiveContains(searchText) ?? false)
             }.sorted { $0.serviceName < $1.serviceName }
+        }
+    }
+
+    var groupedAccounts: [(group: Group?, accounts: [OTPAccount])] {
+        let grouped = Dictionary(grouping: filteredAccounts) { $0.group }
+        let sortedGroups = grouped.keys.sorted { lhs, rhs in
+            switch (lhs, rhs) {
+            case (nil, _):
+                return false  // No group goes last
+            case (_, nil):
+                return true   // Groups come before no group
+            case let (group1?, group2?):
+                return group1.name < group2.name
+            }
+        }
+
+        return sortedGroups.map { group in
+            (group: group, accounts: grouped[group]?.sorted { $0.serviceName < $1.serviceName } ?? [])
         }
     }
 
@@ -38,24 +62,48 @@ struct ContentView: View {
                         }
                     } else {
                         ScrollView {
-                            LazyVStack(spacing: 16) {
-                                ForEach(filteredAccounts) { account in
-                                    OTPAccountCard(account: account, otpService: otpService)
+                            LazyVStack(spacing: 20) {
+                                ForEach(groupedAccounts, id: \.group?.id) { groupData in
+                                    if !groupData.accounts.isEmpty {
+                                        let key = groupData.group?.id.uuidString ?? "ungrouped"
+                                        GroupSection(
+                                            group: groupData.group,
+                                            accounts: groupData.accounts,
+                                            otpService: otpService,
+                                            modelContext: modelContext,
+                                            editMode: $editMode,
+                                            isExpanded: expandedGroups.contains(key),
+                                            onToggle: {
+                                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                                    if expandedGroups.contains(key) {
+                                                        expandedGroups.remove(key)
+                                                    } else {
+                                                        expandedGroups.insert(key)
+                                                    }
+                                                }
+                                            },
+                                            onDelete: { account in
+                                                deleteAccount(account)
+                                            },
+                                            onEdit: { _ in }
+                                        )
                                         .transition(.asymmetric(
                                             insertion: .scale.combined(with: .opacity),
                                             removal: .opacity
                                         ))
+                                    }
                                 }
                             }
                             .padding(.horizontal)
                             .padding(.top, 8)
                         }
-                        .searchable(text: $searchText, prompt: "Search accounts")
+                        .searchable(text: $searchText, prompt: "Search accounts or groups")
                     }
                 }
             }
             .navigationTitle("Purple OTP")
             .navigationBarTitleDisplayMode(.large)
+            .environment(\.editMode, $editMode)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
@@ -76,17 +124,37 @@ struct ContentView: View {
                 }
 
                 if !accounts.isEmpty {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        EditButton()
-                            .foregroundColor(.purplePrimary)
+
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Groups") {
+                            showingGroupManager = true
+                        }
+                        .foregroundColor(.purplePrimary)
+                        .disabled(editMode == .active)
                     }
                 }
             }
             .sheet(isPresented: $showingAddAccount) {
                 AddAccountView(modelContext: modelContext)
             }
+            .sheet(isPresented: $showingGroupManager) {
+                GroupManagerView()
+            }
             .onAppear {
                 updateAllCodes()
+                createDefaultGroupsIfNeeded()
+            }
+        }
+    }
+
+    private func deleteAccount(_ account: OTPAccount) {
+        withAnimation {
+            otpService.deleteAccount(account)
+            modelContext.delete(account)
+            do {
+                try modelContext.save()
+            } catch {
+                print("Failed to delete account: \(error)")
             }
         }
     }
@@ -104,6 +172,145 @@ struct ContentView: View {
     private func updateAllCodes() {
         for account in accounts {
             otpService.updateCode(for: account)
+        }
+    }
+
+    private func createDefaultGroupsIfNeeded() {
+        // Only create default groups if no groups exist yet
+        if groups.isEmpty {
+            let defaultGroups = [
+                Group(name: "Personal", colorName: "blue", iconName: "person.crop.circle", sortOrder: 1),
+                Group(name: "Work", colorName: "orange", iconName: "building.2", sortOrder: 2),
+                Group(name: "Development", colorName: "green", iconName: "laptopcomputer", sortOrder: 3),
+                Group(name: "Production", colorName: "red", iconName: "server.rack", sortOrder: 4)
+            ]
+
+            for group in defaultGroups {
+                modelContext.insert(group)
+            }
+
+            do {
+                try modelContext.save()
+            } catch {
+                print("Failed to create default groups: \(error)")
+            }
+        }
+    }
+}
+
+struct GroupSection: View {
+    let group: Group?
+    let accounts: [OTPAccount]
+    @ObservedObject var otpService: OTPService
+    let modelContext: ModelContext
+    @Binding var editMode: EditMode
+    let isExpanded: Bool
+    let onToggle: () -> Void
+    let onDelete: (OTPAccount) -> Void
+    let onEdit: (OTPAccount) -> Void
+
+    @State private var showingEditAccount: OTPAccount?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button(action: onToggle) {
+                HStack(spacing: 12) {
+                    if let group = group {
+                        if let iconName = group.iconName {
+                            Image(systemName: iconName)
+                                .font(.title3)
+                                .foregroundColor(.purplePrimary)
+                                .frame(width: 24, height: 24)
+                        }
+
+                        Text(group.name)
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+                    } else {
+                        Image(systemName: "tray")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
+                            .frame(width: 24, height: 24)
+
+                        Text("Ungrouped")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+                    }
+
+                    Text("(\(accounts.count))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background((group == nil ? Color.gray.opacity(0.2) : Color.purpleLight))
+                        .clipShape(Capsule())
+
+                    Spacer()
+
+                    Image(systemName: isExpanded ? "chevron.down.circle.fill" : "chevron.right.circle.fill")
+                        .foregroundColor(.purplePrimary)
+                        .font(.title3)
+                        .symbolEffect(.rotate, value: isExpanded)
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, 4)
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                LazyVStack(spacing: 12) {
+                    ForEach(accounts) { account in
+                        OTPAccountCard(account: account, otpService: otpService)
+                            .contextMenu {
+                                Button {
+                                    showingEditAccount = account
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+
+                                Button(role: .destructive) {
+                                    onDelete(account)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .overlay(alignment: .center) {
+                                SwiftUI.Group {
+                                    if editMode == .active {
+                                        HStack {
+                                            Button {
+                                                onDelete(account)
+                                            } label: {
+                                                Image(systemName: "minus.circle.fill")
+                                                    .foregroundColor(.red)
+                                                    .background(Color.white, in: Circle())
+                                            }
+                                            .padding(.leading, 8)
+
+                                            Spacer()
+
+                                            Button {
+                                                showingEditAccount = account
+                                            } label: {
+                                                Image(systemName: "pencil.circle.fill")
+                                                    .foregroundColor(.purplePrimary)
+                                                    .background(Color.white, in: Circle())
+                                            }
+                                            .padding(.trailing, 8)
+                                        }
+                                    }
+                                }
+                            }
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+                .sheet(item: $showingEditAccount) { account in
+                    EditAccountView(account: account, modelContext: modelContext)
+                }
+            }
         }
     }
 }
@@ -373,5 +580,5 @@ struct EmptyStateView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: OTPAccount.self, inMemory: true)
+        .modelContainer(for: [OTPAccount.self, Group.self], inMemory: true)
 }

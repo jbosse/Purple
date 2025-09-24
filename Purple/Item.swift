@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import SwiftUI // For type names like Color if later extended and to avoid ambiguity with SwiftUI.Group usage elsewhere
 
 enum OTPAlgorithm: String, Codable, CaseIterable {
     case sha1 = "SHA1"
@@ -17,6 +18,25 @@ enum OTPAlgorithm: String, Codable, CaseIterable {
 enum OTPType: String, Codable, CaseIterable {
     case totp = "TOTP"
     case hotp = "HOTP"
+}
+
+@Model
+final class Group {
+    var id: UUID
+    var name: String
+    var colorName: String // For visual distinction
+    var iconName: String? // SF Symbol
+    var sortOrder: Int
+    var createdAt: Date
+
+    init(name: String, colorName: String = "blue", iconName: String? = nil, sortOrder: Int = 0) {
+        self.id = UUID()
+        self.name = name
+        self.colorName = colorName
+        self.iconName = iconName
+        self.sortOrder = sortOrder
+        self.createdAt = Date()
+    }
 }
 
 @Model
@@ -35,6 +55,7 @@ final class OTPAccount {
     var isFavorite: Bool
     var iconName: String? // SF Symbol or custom icon
     var notes: String?
+    var group: Group? // Associated group
 
     init(
         serviceName: String,
@@ -46,7 +67,8 @@ final class OTPAccount {
         counter: Int = 0,
         type: OTPType = .totp,
         iconName: String? = nil,
-        notes: String? = nil
+        notes: String? = nil,
+        group: Group? = nil
     ) {
         self.id = UUID()
         self.serviceName = serviceName
@@ -62,5 +84,13 @@ final class OTPAccount {
         self.isFavorite = false
         self.iconName = iconName
         self.notes = notes
+        self.group = group
     }
 }
+
+// NOTE: Do NOT add an explicit Identifiable conformance here.
+// The @Model macro already synthesizes Identifiable in a context
+// that is compatible with SwiftData's PersistentModel and Swift 6
+// concurrency rules. An explicit extension can cause actor isolation
+// mismatches ("main actor-isolated conformance" errors) when
+// building with -default-isolation=MainActor.

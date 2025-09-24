@@ -12,6 +12,7 @@ struct AddAccountView: View {
     let modelContext: ModelContext
     @Environment(\.dismiss) private var dismiss
     @StateObject private var otpService = OTPService.shared
+    @Query private var groups: [Group]
 
     @State private var serviceName = ""
     @State private var accountName = ""
@@ -20,10 +21,13 @@ struct AddAccountView: View {
     @State private var selectedDigits = 6
     @State private var selectedPeriod = 30
     @State private var selectedType: OTPType = .totp
+    @State private var selectedGroup: Group? = nil
     @State private var showingScanner = false
     @State private var showingAdvanced = false
     @State private var showingError = false
     @State private var errorMessage = ""
+    @State private var showingNewGroup = false
+    @State private var newGroupName = ""
 
     private let digitOptions = [6, 8]
     private let periodOptions = [15, 30, 60]
@@ -104,6 +108,79 @@ struct AddAccountView: View {
                             Image(systemName: "key")
                                 .foregroundColor(.purplePrimary)
                             Text("Secret Key")
+                        }
+                    }
+
+                    Section {
+                        VStack(alignment: .leading, spacing: 16) {
+                            HStack {
+                                Text("Group")
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundColor(.secondary)
+                                
+                                Spacer()
+                                
+                                Button("New Group") {
+                                    showingNewGroup = true
+                                }
+                                .font(.caption)
+                                .foregroundColor(.purplePrimary)
+                            }
+                            
+                            Menu {
+                                Button("No Group") {
+                                    selectedGroup = nil
+                                }
+                                .foregroundColor(selectedGroup == nil ? .purplePrimary : .primary)
+                                
+                                if !groups.isEmpty {
+                                    Divider()
+                                    ForEach(groups.sorted(by: { $0.name < $1.name }), id: \.id) { group in
+                                        Button(group.name) {
+                                            selectedGroup = group
+                                        }
+                                        .foregroundColor(selectedGroup?.id == group.id ? .purplePrimary : .primary)
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    if let group = selectedGroup {
+                                        HStack(spacing: 8) {
+                                            if let iconName = group.iconName {
+                                                Image(systemName: iconName)
+                                                    .foregroundColor(.purplePrimary)
+                                            }
+                                            Text(group.name)
+                                                .foregroundColor(.primary)
+                                        }
+                                    } else {
+                                        Text("No Group")
+                                            .foregroundColor(.secondary)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.backgroundTertiary)
+                                .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.purplePrimary.opacity(0.3), lineWidth: 1)
+                                )
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    } header: {
+                        HStack {
+                            Image(systemName: "folder")
+                                .foregroundColor(.purplePrimary)
+                            Text("Organization")
                         }
                     }
 
@@ -190,6 +267,11 @@ struct AddAccountView: View {
                     handleQRCodeResult(result)
                 }
             }
+            .sheet(isPresented: $showingNewGroup) {
+                NewGroupView(modelContext: modelContext) { newGroup in
+                    selectedGroup = newGroup
+                }
+            }
             .alert("Error", isPresented: $showingError) {
                 Button("OK") { }
             } message: {
@@ -210,7 +292,8 @@ struct AddAccountView: View {
             algorithm: selectedAlgorithm,
             digits: selectedDigits,
             period: selectedPeriod,
-            type: selectedType
+            type: selectedType,
+            group: selectedGroup
         ) else {
             errorMessage = "Failed to add account. Please check your secret key."
             showingError = true
@@ -303,5 +386,5 @@ struct CustomPicker<T: Hashable, Content: View>: View {
 }
 
 #Preview {
-    AddAccountView(modelContext: ModelContext(try! ModelContainer(for: OTPAccount.self)))
+    AddAccountView(modelContext: ModelContext(try! ModelContainer(for: OTPAccount.self, Group.self)))
 }
